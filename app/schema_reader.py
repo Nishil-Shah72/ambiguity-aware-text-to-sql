@@ -1,4 +1,6 @@
 from sqlalchemy import inspect, create_engine
+from sqlalchemy.engine import URL
+
 from app.config import (
     DB_HOST,
     DB_PORT,
@@ -8,9 +10,13 @@ from app.config import (
 )
 
 
-DATABASE_URL = (
-    f"mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}"
-    f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DATABASE_URL = URL.create(
+    drivername="mysql+mysqlconnector",
+    username=DB_USER,
+    password=DB_PASSWORD,
+    host=DB_HOST,
+    port=int(DB_PORT),
+    database=DB_NAME
 )
 
 engine = create_engine(DATABASE_URL)
