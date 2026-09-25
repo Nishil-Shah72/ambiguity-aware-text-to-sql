@@ -1,4 +1,5 @@
 class UserIntent:
+
     def __init__(
         self,
         question,
@@ -8,9 +9,12 @@ class UserIntent:
         conditions=None,
         aggregation=None,
         ranking=None,
+        ranking_criteria=None,
         time_range=None,
         comparisons=None,
+        comparison_criteria=None,
         references=None,
+        reference_target=None,
         scope=None
     ):
         self.question = question
@@ -20,9 +24,12 @@ class UserIntent:
         self.conditions = conditions or []
         self.aggregation = aggregation
         self.ranking = ranking
+        self.ranking_criteria = ranking_criteria
         self.time_range = time_range
         self.comparisons = comparisons or []
+        self.comparison_criteria = comparison_criteria
         self.references = references or []
+        self.reference_target = reference_target
         self.scope = scope
 
     def to_dict(self):
@@ -34,8 +41,11 @@ class UserIntent:
             "conditions": self.conditions,
             "aggregation": self.aggregation,
             "ranking": self.ranking,
+            "ranking_criteria": self.ranking_criteria,
             "time_range": self.time_range,
             "comparisons": self.comparisons,
+            "comparison_criteria": self.comparison_criteria,
             "references": self.references,
+            "reference_target": self.reference_target,
             "scope": self.scope
         }

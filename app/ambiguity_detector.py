@@ -1,4 +1,5 @@
 class AmbiguityDetector:
+
     def __init__(self, schema):
         self.schema = schema
 
@@ -6,13 +7,15 @@ class AmbiguityDetector:
         ambiguities = []
 
         # Ranking ambiguity
-        if intent.ranking and not intent.aggregation:
+        if intent.ranking and not intent.ranking_criteria:
             ambiguities.append(
                 "Ranking criteria is not specified."
             )
 
         # Comparison ambiguity
-        if intent.comparisons and not intent.aggregation:
+        if intent.comparisons and not getattr(
+            intent, "comparison_criteria", None
+        ):
             ambiguities.append(
                 "Comparison criteria is not specified."
             )
@@ -24,7 +27,9 @@ class AmbiguityDetector:
             )
 
         # Reference ambiguity
-        if intent.references:
+        if intent.references and not getattr(
+            intent, "reference_target", None
+        ):
             ambiguities.append(
                 "Reference is not clearly identified."
             )

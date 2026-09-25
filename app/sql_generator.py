@@ -8,81 +8,225 @@ class SQLGenerator:
         Convert UserIntent into a SQL query.
         """
 
-        # -------------------------
+        # -------------------------------------------------
         # 1. Ranking queries
-        # -------------------------
+        # -------------------------------------------------
         if intent.action == "ranking":
 
+            # ---------------------------------------------
+            # Customer ranking
+            # ---------------------------------------------
             if "customers" in intent.entities:
+
+                # Rank customers by total spending
+                if intent.ranking_criteria in ["total_spending", "sales"]:
+                    return """
+SELECT
+    c.customer_id,
+    c.name,
+    c.city,
+    c.age,
+    COALESCE(SUM(o.total_amount), 0) AS total_spending
+FROM customers c
+LEFT JOIN orders o
+    ON c.customer_id = o.customer_id
+GROUP BY
+    c.customer_id,
+    c.name,
+    c.city,
+    c.age
+ORDER BY total_spending DESC
+LIMIT 10;
+""".strip()
+
+                # Rank customers by number of orders
+                if intent.ranking_criteria == "order_count":
+                    return """
+SELECT
+    c.customer_id,
+    c.name,
+    c.city,
+    c.age,
+    COUNT(o.order_id) AS order_count
+FROM customers c
+LEFT JOIN orders o
+    ON c.customer_id = o.customer_id
+GROUP BY
+    c.customer_id,
+    c.name,
+    c.city,
+    c.age
+ORDER BY order_count DESC
+LIMIT 10;
+""".strip()
+
+                # Rank customers by age
+                if intent.ranking_criteria == "age":
+                    return """
+SELECT
+    customer_id,
+    name,
+    city,
+    age
+FROM customers
+ORDER BY age DESC
+LIMIT 10;
+""".strip()
+
+                # Default customer ranking
                 return """
-SELECT customer_id, name, city, age
+SELECT
+    customer_id,
+    name,
+    city,
+    age
 FROM customers
 ORDER BY customer_id DESC
 LIMIT 10;
 """.strip()
 
+            # ---------------------------------------------
+            # Product ranking
+            # ---------------------------------------------
             if "products" in intent.entities:
-                return """
-SELECT product_id, product_name, category, price
+
+                # Most expensive products
+                if intent.ranking_criteria == "price":
+                    return """
+SELECT
+    product_id,
+    product_name,
+    category,
+    price
 FROM products
 ORDER BY price DESC
 LIMIT 10;
 """.strip()
 
+                # Best-selling products by quantity
+                if intent.ranking_criteria == "quantity":
+                    return """
+SELECT
+    p.product_id,
+    p.product_name,
+    p.category,
+    p.price,
+    COALESCE(SUM(oi.quantity), 0) AS total_quantity
+FROM products p
+LEFT JOIN order_items oi
+    ON p.product_id = oi.product_id
+GROUP BY
+    p.product_id,
+    p.product_name,
+    p.category,
+    p.price
+ORDER BY total_quantity DESC
+LIMIT 10;
+""".strip()
+
+                # Default product ranking
+                return """
+SELECT
+    product_id,
+    product_name,
+    category,
+    price
+FROM products
+ORDER BY price DESC
+LIMIT 10;
+""".strip()
+
+            # ---------------------------------------------
+            # Order ranking
+            # ---------------------------------------------
             if "orders" in intent.entities:
                 return """
-SELECT order_id, customer_id, order_date, total_amount
+SELECT
+    order_id,
+    customer_id,
+    order_date,
+    total_amount
 FROM orders
 ORDER BY total_amount DESC
 LIMIT 10;
 """.strip()
 
-        # -------------------------
+        # -------------------------------------------------
         # 2. Average queries
-        # -------------------------
+        # -------------------------------------------------
         if intent.action == "aggregation" and intent.aggregation == "average":
 
             if "orders" in intent.entities:
                 return """
-SELECT AVG(total_amount) AS average_order_amount
+SELECT
+    AVG(total_amount) AS average_order_amount
 FROM orders;
 """.strip()
 
             if "products" in intent.entities:
                 return """
-SELECT AVG(price) AS average_product_price
+SELECT
+    AVG(price) AS average_product_price
 FROM products;
 """.strip()
 
             if "customers.age" in intent.entities:
                 return """
-SELECT AVG(age) AS average_age
+SELECT
+    AVG(age) AS average_age
 FROM customers;
 """.strip()
 
-        # -------------------------
+        # -------------------------------------------------
         # 3. Total / SUM queries
-        # -------------------------
+        # -------------------------------------------------
         if intent.action == "aggregation" and intent.aggregation == "total":
 
             if "orders.total_amount" in intent.entities:
                 return """
-SELECT SUM(total_amount) AS total_sales
+SELECT
+    SUM(total_amount) AS total_sales
 FROM orders;
 """.strip()
 
             if "orders" in intent.entities:
                 return """
-SELECT SUM(total_amount) AS total_sales
+SELECT
+    SUM(total_amount) AS total_sales
 FROM orders;
 """.strip()
 
-        # -------------------------
-        # 4. Condition-based queries
-        # -------------------------
+        # -------------------------------------------------
+        # 4. Count queries
+        # -------------------------------------------------
+        if intent.action == "aggregation" and intent.aggregation == "count":
+
+            if "customers" in intent.entities:
+                return """
+SELECT
+    COUNT(*) AS customer_count
+FROM customers;
+""".strip()
+
+            if "orders" in intent.entities:
+                return """
+SELECT
+    COUNT(*) AS order_count
+FROM orders;
+""".strip()
+
+            if "products" in intent.entities:
+                return """
+SELECT
+    COUNT(*) AS product_count
+FROM products;
+""".strip()
+
+        # -------------------------------------------------
+        # 5. Condition-based queries
+        # -------------------------------------------------
         if intent.conditions:
 
-            # Currently supports conditions on known columns
             condition_parts = []
 
             for condition in intent.conditions:
@@ -96,7 +240,6 @@ FROM orders;
 
             where_clause = " AND ".join(condition_parts)
 
-            # Determine table
             tables = set(
                 condition["column"].split(".")[0]
                 for condition in intent.conditions
@@ -111,9 +254,9 @@ FROM {table}
 WHERE {where_clause};
 """.strip()
 
-        # -------------------------
-        # 5. Simple entity queries
-        # -------------------------
+        # -------------------------------------------------
+        # 6. Simple entity queries
+        # -------------------------------------------------
         if "customers" in intent.entities:
             return """
 SELECT *
@@ -132,7 +275,7 @@ SELECT *
 FROM products;
 """.strip()
 
-        # -------------------------
-        # 6. No suitable SQL found
-        # -------------------------
+        # -------------------------------------------------
+        # 7. No suitable SQL found
+        # -------------------------------------------------
         return None
