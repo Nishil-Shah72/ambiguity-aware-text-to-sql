@@ -21,63 +21,79 @@ class IntentParser:
         ranking_criteria = None
         time_range = None
         comparisons = []
+        comparison_criteria = None
         references = []
+        reference_target = None
         scope = None
 
         # --------------------------------------------------
         # ACTION DETECTION
         # --------------------------------------------------
 
-        if any(word in question_lower for word in [
+        ranking_words = [
             "best",
             "top",
             "highest",
             "lowest",
             "maximum",
-            "minimum"
-        ]):
+            "minimum",
+            "most",
+            "least",
+            "largest",
+            "smallest"
+        ]
+
+        if any(
+            re.search(rf"\b{re.escape(word)}\b", question_lower)
+            for word in ranking_words
+        ):
             action = "ranking"
             ranking = "best"
 
-        elif any(word in question_lower for word in [
-            "average",
-            "avg",
-            "mean"
-        ]):
+        elif any(
+            re.search(rf"\b{re.escape(word)}\b", question_lower)
+            for word in ["average", "avg", "mean"]
+        ):
             action = "aggregation"
             aggregation = "average"
 
-        elif any(word in question_lower for word in [
-            "total",
-            "sum"
-        ]):
+        elif any(
+            re.search(rf"\b{re.escape(word)}\b", question_lower)
+            for word in ["total", "sum"]
+        ):
             action = "aggregation"
             aggregation = "total"
 
-        elif any(word in question_lower for word in [
-            "count",
-            "number of",
-            "how many"
-        ]):
+        elif (
+            "count" in question_lower
+            or "number of" in question_lower
+            or "how many" in question_lower
+        ):
             action = "aggregation"
             aggregation = "count"
 
-        elif any(word in question_lower for word in [
-            "compare",
-            "comparison",
-            "difference",
-            "versus",
-            "vs"
-        ]):
+        elif any(
+            re.search(rf"\b{re.escape(word)}\b", question_lower)
+            for word in [
+                "compare",
+                "comparison",
+                "difference",
+                "versus",
+                "vs"
+            ]
+        ):
             action = "comparison"
 
-        elif any(word in question_lower for word in [
-            "show",
-            "list",
-            "display",
-            "find",
-            "get"
-        ]):
+        elif any(
+            re.search(rf"\b{re.escape(word)}\b", question_lower)
+            for word in [
+                "show",
+                "list",
+                "display",
+                "find",
+                "get"
+            ]
+        ):
             action = "retrieve"
 
         # --------------------------------------------------
@@ -86,35 +102,71 @@ class IntentParser:
 
         if ranking:
 
-            if any(word in question_lower for word in [
-                "sales",
-                "revenue",
-                "amount",
-                "spending",
-                "spent"
-            ]):
+            # Sales / spending / revenue
+            if any(
+                word in question_lower
+                for word in [
+                    "sales",
+                    "revenue",
+                    "amount",
+                    "spending",
+                    "spent",
+                    "purchase value",
+                    "money"
+                ]
+            ):
                 ranking_criteria = "sales"
 
-            elif any(word in question_lower for word in [
-                "price",
-                "expensive",
-                "cost"
-            ]):
+            # Price
+            elif any(
+                word in question_lower
+                for word in [
+                    "price",
+                    "expensive",
+                    "cost",
+                    "cheapest",
+                    "costliest"
+                ]
+            ):
                 ranking_criteria = "price"
 
-            elif any(word in question_lower for word in [
-                "age",
-                "oldest",
-                "youngest"
-            ]):
+            # Age
+            elif any(
+                word in question_lower
+                for word in [
+                    "age",
+                    "oldest",
+                    "youngest",
+                    "older",
+                    "younger"
+                ]
+            ):
                 ranking_criteria = "age"
 
-            elif any(word in question_lower for word in [
-                "quantity",
-                "units",
-                "orders"
-            ]):
+            # Quantity
+            elif any(
+                word in question_lower
+                for word in [
+                    "quantity",
+                    "units",
+                    "sold",
+                    "items sold",
+                    "number sold"
+                ]
+            ):
                 ranking_criteria = "quantity"
+
+            # Number of orders
+            elif any(
+                phrase in question_lower
+                for phrase in [
+                    "number of orders",
+                    "order count",
+                    "most orders",
+                    "least orders"
+                ]
+            ):
+                ranking_criteria = "order_count"
 
         # --------------------------------------------------
         # TIME RANGE
@@ -153,17 +205,60 @@ class IntentParser:
 
         if action == "comparison":
 
-            if "customer" in question_lower:
+            if re.search(r"\bcustomer(s)?\b", question_lower):
                 comparisons.append("customers")
 
-            if "product" in question_lower:
+            if re.search(r"\bproduct(s)?\b", question_lower):
                 comparisons.append("products")
 
-            if "order" in question_lower:
+            if re.search(r"\border(s)?\b", question_lower):
                 comparisons.append("orders")
 
             if "sales" in question_lower:
                 comparisons.append("sales")
+
+            # Comparison criteria
+            if any(
+                word in question_lower
+                for word in [
+                    "sales",
+                    "revenue",
+                    "spending",
+                    "spent",
+                    "amount"
+                ]
+            ):
+                comparison_criteria = "sales"
+
+            elif any(
+                word in question_lower
+                for word in [
+                    "price",
+                    "cost",
+                    "expensive"
+                ]
+            ):
+                comparison_criteria = "price"
+
+            elif any(
+                word in question_lower
+                for word in [
+                    "age",
+                    "oldest",
+                    "youngest"
+                ]
+            ):
+                comparison_criteria = "age"
+
+            elif any(
+                word in question_lower
+                for word in [
+                    "quantity",
+                    "units",
+                    "sold"
+                ]
+            ):
+                comparison_criteria = "quantity"
 
         # --------------------------------------------------
         # REFERENCES
@@ -183,10 +278,26 @@ class IntentParser:
 
         for word in reference_words:
 
-            pattern = rf"\b{word}\b"
+            pattern = rf"\b{re.escape(word)}\b"
 
             if re.search(pattern, question_lower):
                 references.append(word)
+
+        # Determine possible reference target
+
+        if references:
+
+            if re.search(r"\bcustomer(s)?\b", question_lower):
+                reference_target = "customers"
+
+            elif re.search(r"\bproduct(s)?\b", question_lower):
+                reference_target = "products"
+
+            elif re.search(r"\border(s)?\b", question_lower):
+                reference_target = "orders"
+
+            elif "sales" in question_lower:
+                reference_target = "sales"
 
         # --------------------------------------------------
         # SCOPE
@@ -195,13 +306,13 @@ class IntentParser:
         if "sales" in question_lower:
             scope = "sales"
 
-        elif "customers" in question_lower or "customer" in question_lower:
+        elif re.search(r"\bcustomer(s)?\b", question_lower):
             scope = "customers"
 
-        elif "products" in question_lower or "product" in question_lower:
+        elif re.search(r"\bproduct(s)?\b", question_lower):
             scope = "products"
 
-        elif "orders" in question_lower or "order" in question_lower:
+        elif re.search(r"\border(s)?\b", question_lower):
             scope = "orders"
 
         # --------------------------------------------------
@@ -221,7 +332,10 @@ class IntentParser:
 
             else:
                 # Singular form
-                singular = table_words.rstrip("s")
+                if table_words.endswith("s"):
+                    singular = table_words[:-1]
+                else:
+                    singular = table_words
 
                 if re.search(
                     rf"\b{re.escape(singular)}\b",
@@ -270,6 +384,50 @@ class IntentParser:
 
             if "orders.total_amount" not in entities:
                 entities.append("orders.total_amount")
+
+        # --------------------------------------------------
+        # SPECIAL RANKING DETECTION
+        # --------------------------------------------------
+
+        # "most expensive product"
+        if (
+            ranking
+            and "expensive" in question_lower
+            and "products" in entities
+        ):
+            ranking_criteria = "price"
+
+        # "cheapest product"
+        if (
+            ranking
+            and "cheapest" in question_lower
+            and "products" in entities
+        ):
+            ranking_criteria = "price"
+
+        # "oldest customer"
+        if (
+            ranking
+            and "oldest" in question_lower
+            and "customers" in entities
+        ):
+            ranking_criteria = "age"
+
+        # "youngest customer"
+        if (
+            ranking
+            and "youngest" in question_lower
+            and "customers" in entities
+        ):
+            ranking_criteria = "age"
+
+        # "product sold the most"
+        if (
+            ranking
+            and "sold" in question_lower
+            and "products" in entities
+        ):
+            ranking_criteria = "quantity"
 
         # --------------------------------------------------
         # NUMERIC CONDITIONS
@@ -343,7 +501,9 @@ class IntentParser:
             ranking_criteria=ranking_criteria,
             time_range=time_range,
             comparisons=comparisons,
+            comparison_criteria=comparison_criteria,
             references=references,
+            reference_target=reference_target,
             scope=scope
         )
 

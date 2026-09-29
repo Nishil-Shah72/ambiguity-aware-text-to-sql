@@ -25,71 +25,80 @@ class TextToSQLPipeline:
 
     def process(self, question, clarification_answers=None):
 
-        # Step 1: Parse intent
+        # --------------------------------------------------
+        # 1. Parse the original question
+        # --------------------------------------------------
+
         intent = self.intent_parser.parse(question)
 
-        # Step 2: Detect ambiguity
+        # --------------------------------------------------
+        # 2. Detect ambiguity
+        # --------------------------------------------------
+
         ambiguities = self.ambiguity_detector.detect(intent)
 
-        # Step 3: Apply clarification answers if provided
-        if clarification_answers and ambiguities:
+        # --------------------------------------------------
+        # 3. Apply clarification answers
+        # --------------------------------------------------
 
-            if isinstance(clarification_answers, dict):
+        if ambiguities and clarification_answers:
 
-                for ambiguity in ambiguities:
-                    if ambiguity in clarification_answers:
-                        answer = clarification_answers[ambiguity]
+            for ambiguity, answer in zip(
+                ambiguities,
+                clarification_answers
+            ):
+                intent = self.clarification_engine.apply_clarification(
+                    intent,
+                    ambiguity,
+                    answer
+                )
 
-                        intent = self.clarification_engine.apply_clarification(
-                            intent,
-                            ambiguity,
-                            answer
-                        )
-
-            elif isinstance(clarification_answers, list):
-
-                for ambiguity, answer in zip(
-                    ambiguities,
-                    clarification_answers
-                ):
-                    intent = self.clarification_engine.apply_clarification(
-                        intent,
-                        ambiguity,
-                        answer
-                    )
-
-            # Re-check ambiguity after clarification
+            # Check again after clarification
             ambiguities = self.ambiguity_detector.detect(intent)
 
-        # Step 4: Ask for clarification if ambiguity still exists
+        # --------------------------------------------------
+        # 4. Ask for clarification if still ambiguous
+        # --------------------------------------------------
+
         if ambiguities:
 
-            clarification = self.clarification_engine.generate_questions(
-                ambiguities
+            questions = (
+                self.clarification_engine.generate_questions(
+                    ambiguities
+                )
             )
 
             return {
                 "status": "clarification_required",
                 "question": question,
-                "clarification": clarification,
+                "clarification": questions,
                 "ambiguities": ambiguities,
                 "intent": intent.to_dict()
             }
 
-        # Step 5: Generate SQL
+        # --------------------------------------------------
+        # 5. Generate SQL
+        # --------------------------------------------------
+
         sql = self.sql_generator.generate(intent)
 
         if not sql:
             return {
                 "status": "error",
-                "message": "Could not generate a suitable SQL query.",
+                "message": "Could not generate SQL for the given intent.",
                 "intent": intent.to_dict()
             }
 
-        # Step 6: Validate SQL
-        is_valid, validation_message = self.sql_validator.validate(sql)
+        # --------------------------------------------------
+        # 6. Validate SQL
+        # --------------------------------------------------
+
+        is_valid, validation_message = (
+            self.sql_validator.validate(sql)
+        )
 
         if not is_valid:
+
             return {
                 "status": "error",
                 "message": validation_message,
@@ -97,10 +106,14 @@ class TextToSQLPipeline:
                 "intent": intent.to_dict()
             }
 
-        # Step 7: Execute SQL
+        # --------------------------------------------------
+        # 7. Execute SQL
+        # --------------------------------------------------
+
         data, error = self.sql_executor.execute(sql)
 
         if error:
+
             return {
                 "status": "error",
                 "message": error,
@@ -108,14 +121,24 @@ class TextToSQLPipeline:
                 "intent": intent.to_dict()
             }
 
-        # Step 8: Analyze result
+        # --------------------------------------------------
+        # 8. Analyze result
+        # --------------------------------------------------
+
         analysis = self.result_analyzer.analyze(data)
 
-        # Step 9: Generate final answer
+        # --------------------------------------------------
+        # 9. Generate natural language answer
+        # --------------------------------------------------
+
         answer = self.answer_generator.generate(
             question,
             analysis
         )
+
+        # --------------------------------------------------
+        # 10. Return final response
+        # --------------------------------------------------
 
         return {
             "status": "success",
