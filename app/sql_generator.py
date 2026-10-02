@@ -5,7 +5,7 @@ class SQLGenerator:
 
     def generate(self, intent):
         """
-        Convert UserIntent into a SQL query.
+        Convert UserIntent into SQL.
 
         Supports:
         - Retrieval
@@ -17,24 +17,22 @@ class SQLGenerator:
         - Product price/quantity/sales ranking
         """
 
-        # ============================================================
-        # 1. RANKING QUERIES
-        # ============================================================
+        # ==================================================
+        # 1. RANKING
+        # ==================================================
 
         if intent.action == "ranking":
 
-            # --------------------------------------------------------
-            # CUSTOMER RANKING
-            # --------------------------------------------------------
+            # ----------------------------------------------
+            # Customer ranking
+            # ----------------------------------------------
 
             if "customers" in intent.entities:
 
                 criteria = intent.ranking_criteria
 
-                # Customer ranking by total spending
-                if criteria == "total_spending" or criteria == "sales":
-
-                    return """
+                if criteria in ["total_spending", "sales", "revenue"]:
+                    query = """
 SELECT
     c.customer_id,
     c.name,
@@ -44,6 +42,15 @@ SELECT
 FROM customers c
 LEFT JOIN orders o
     ON c.customer_id = o.customer_id
+""".strip()
+
+                    query = self._apply_time_range(
+                        query,
+                        "o.order_date",
+                        intent.time_range
+                    )
+
+                    query += """
 GROUP BY
     c.customer_id,
     c.name,
@@ -51,12 +58,12 @@ GROUP BY
     c.age
 ORDER BY total_spending DESC
 LIMIT 10;
-""".strip()
+""".rstrip()
 
-                # Customer ranking by number of orders
-                if criteria == "order_count" or criteria == "quantity":
+                    return query
 
-                    return """
+                if criteria == "order_count":
+                    query = """
 SELECT
     c.customer_id,
     c.name,
@@ -66,6 +73,15 @@ SELECT
 FROM customers c
 LEFT JOIN orders o
     ON c.customer_id = o.customer_id
+""".strip()
+
+                    query = self._apply_time_range(
+                        query,
+                        "o.order_date",
+                        intent.time_range
+                    )
+
+                    query += """
 GROUP BY
     c.customer_id,
     c.name,
@@ -73,11 +89,11 @@ GROUP BY
     c.age
 ORDER BY order_count DESC
 LIMIT 10;
-""".strip()
+""".rstrip()
 
-                # Customer ranking by age
+                    return query
+
                 if criteria == "age":
-
                     return """
 SELECT
     customer_id,
@@ -90,7 +106,7 @@ LIMIT 10;
 """.strip()
 
                 # Default customer ranking
-                return """
+                query = """
 SELECT
     c.customer_id,
     c.name,
@@ -100,6 +116,15 @@ SELECT
 FROM customers c
 LEFT JOIN orders o
     ON c.customer_id = o.customer_id
+""".strip()
+
+                query = self._apply_time_range(
+                    query,
+                    "o.order_date",
+                    intent.time_range
+                )
+
+                query += """
 GROUP BY
     c.customer_id,
     c.name,
@@ -107,19 +132,19 @@ GROUP BY
     c.age
 ORDER BY total_spending DESC
 LIMIT 10;
-""".strip()
+""".rstrip()
 
-            # --------------------------------------------------------
-            # PRODUCT RANKING
-            # --------------------------------------------------------
+                return query
+
+            # ----------------------------------------------
+            # Product ranking
+            # ----------------------------------------------
 
             if "products" in intent.entities:
 
                 criteria = intent.ranking_criteria
 
-                # Product ranking by price
                 if criteria == "price":
-
                     return """
 SELECT
     product_id,
@@ -131,10 +156,8 @@ ORDER BY price DESC
 LIMIT 10;
 """.strip()
 
-                # Product ranking by quantity sold
                 if criteria == "quantity":
-
-                    return """
+                    query = """
 SELECT
     p.product_id,
     p.product_name,
@@ -144,6 +167,17 @@ SELECT
 FROM products p
 LEFT JOIN order_items oi
     ON p.product_id = oi.product_id
+LEFT JOIN orders o
+    ON oi.order_id = o.order_id
+""".strip()
+
+                    query = self._apply_time_range(
+                        query,
+                        "o.order_date",
+                        intent.time_range
+                    )
+
+                    query += """
 GROUP BY
     p.product_id,
     p.product_name,
@@ -151,21 +185,39 @@ GROUP BY
     p.price
 ORDER BY quantity_sold DESC
 LIMIT 10;
-""".strip()
+""".rstrip()
 
-                # Product ranking by sales/revenue
-                if criteria in ["sales", "revenue", "total_spending"]:
+                    return query
 
-                    return """
+                if criteria in [
+                    "sales",
+                    "revenue",
+                    "total_spending"
+                ]:
+                    query = """
 SELECT
     p.product_id,
     p.product_name,
     p.category,
     p.price,
-    COALESCE(SUM(oi.quantity * p.price), 0) AS total_sales
+    COALESCE(
+        SUM(oi.quantity * p.price),
+        0
+    ) AS total_sales
 FROM products p
 LEFT JOIN order_items oi
     ON p.product_id = oi.product_id
+LEFT JOIN orders o
+    ON oi.order_id = o.order_id
+""".strip()
+
+                    query = self._apply_time_range(
+                        query,
+                        "o.order_date",
+                        intent.time_range
+                    )
+
+                    query += """
 GROUP BY
     p.product_id,
     p.product_name,
@@ -173,9 +225,10 @@ GROUP BY
     p.price
 ORDER BY total_sales DESC
 LIMIT 10;
-""".strip()
+""".rstrip()
 
-                # Default product ranking
+                    return query
+
                 return """
 SELECT
     product_id,
@@ -187,39 +240,51 @@ ORDER BY price DESC
 LIMIT 10;
 """.strip()
 
-            # --------------------------------------------------------
-            # ORDER RANKING
-            # --------------------------------------------------------
+            # ----------------------------------------------
+            # Order ranking
+            # ----------------------------------------------
 
             if "orders" in intent.entities:
 
-                return """
+                query = """
 SELECT
     order_id,
     customer_id,
     order_date,
     total_amount
 FROM orders
-ORDER BY total_amount DESC
-LIMIT 10;
 """.strip()
 
-        # ============================================================
-        # 2. AGGREGATION QUERIES
-        # ============================================================
+                query = self._apply_time_range(
+                    query,
+                    "order_date",
+                    intent.time_range
+                )
+
+                query += """
+ORDER BY total_amount DESC
+LIMIT 10;
+""".rstrip()
+
+                return query
+
+        # ==================================================
+        # 2. AGGREGATION
+        # ==================================================
 
         if intent.action == "aggregation":
 
-            # --------------------------------------------------------
-            # AVERAGE
-            # --------------------------------------------------------
+            # ----------------------------------------------
+            # Average
+            # ----------------------------------------------
 
             if intent.aggregation == "average":
 
                 if "orders" in intent.entities:
 
                     query = """
-SELECT AVG(total_amount) AS average_order_amount
+SELECT
+    AVG(total_amount) AS average_order_amount
 FROM orders
 """.strip()
 
@@ -236,7 +301,8 @@ FROM orders
                 if "products" in intent.entities:
 
                     return """
-SELECT AVG(price) AS average_product_price
+SELECT
+    AVG(price) AS average_product_price
 FROM products;
 """.strip()
 
@@ -249,13 +315,14 @@ FROM products;
                 ):
 
                     return """
-SELECT AVG(age) AS average_age
+SELECT
+    AVG(age) AS average_age
 FROM customers;
 """.strip()
 
-            # --------------------------------------------------------
-            # TOTAL / SUM
-            # --------------------------------------------------------
+            # ----------------------------------------------
+            # Total
+            # ----------------------------------------------
 
             if intent.aggregation == "total":
 
@@ -266,7 +333,8 @@ FROM customers;
                 ):
 
                     query = """
-SELECT SUM(total_amount) AS total_sales
+SELECT
+    SUM(total_amount) AS total_sales
 FROM orders
 """.strip()
 
@@ -280,30 +348,33 @@ FROM orders
 
                     return query
 
-            # --------------------------------------------------------
-            # COUNT
-            # --------------------------------------------------------
+            # ----------------------------------------------
+            # Count
+            # ----------------------------------------------
 
             if intent.aggregation == "count":
 
                 if "customers" in intent.entities:
 
                     return """
-SELECT COUNT(*) AS customer_count
+SELECT
+    COUNT(*) AS customer_count
 FROM customers;
 """.strip()
 
                 if "products" in intent.entities:
 
                     return """
-SELECT COUNT(*) AS product_count
+SELECT
+    COUNT(*) AS product_count
 FROM products;
 """.strip()
 
                 if "orders" in intent.entities:
 
                     query = """
-SELECT COUNT(*) AS order_count
+SELECT
+    COUNT(*) AS order_count
 FROM orders
 """.strip()
 
@@ -317,9 +388,9 @@ FROM orders
 
                     return query
 
-        # ============================================================
-        # 3. NUMERIC CONDITION QUERIES
-        # ============================================================
+        # ==================================================
+        # 3. NUMERIC CONDITIONS
+        # ==================================================
 
         if intent.conditions:
 
@@ -352,19 +423,22 @@ FROM {table}
 WHERE {where_clause}
 """.strip()
 
-                query = self._apply_time_range(
-                    query,
-                    "order_date",
-                    intent.time_range
-                )
+                # Only orders have order_date in the
+                # current database schema.
+                if table == "orders":
+                    query = self._apply_time_range(
+                        query,
+                        "order_date",
+                        intent.time_range
+                    )
 
                 query += ";"
 
                 return query
 
-        # ============================================================
-        # 4. ORDER QUERIES WITH TIME RANGE
-        # ============================================================
+        # ==================================================
+        # 4. ORDER RETRIEVAL
+        # ==================================================
 
         if "orders" in intent.entities:
 
@@ -383,9 +457,9 @@ FROM orders
 
             return query
 
-        # ============================================================
+        # ==================================================
         # 5. CUSTOMER RETRIEVAL
-        # ============================================================
+        # ==================================================
 
         if "customers" in intent.entities:
 
@@ -394,9 +468,9 @@ SELECT *
 FROM customers;
 """.strip()
 
-        # ============================================================
+        # ==================================================
         # 6. PRODUCT RETRIEVAL
-        # ============================================================
+        # ==================================================
 
         if "products" in intent.entities:
 
@@ -405,63 +479,69 @@ SELECT *
 FROM products;
 """.strip()
 
-        # ============================================================
-        # 7. FALLBACK
-        # ============================================================
-
         return None
 
-    # ================================================================
+    # ======================================================
     # TIME RANGE HELPER
-    # ================================================================
+    # ======================================================
 
-    def _apply_time_range(self, query, date_column, time_range):
+    def _apply_time_range(
+        self,
+        query,
+        date_column,
+        time_range
+    ):
+        """
+        Add a time-range condition safely.
+
+        If the query already contains WHERE,
+        use AND instead of adding another WHERE.
+        """
 
         if not time_range:
             return query
 
-        # ------------------------------------------------------------
-        # TODAY
-        # ------------------------------------------------------------
+        connector = (
+            " AND "
+            if " WHERE " in query.upper()
+            else " WHERE "
+        )
 
         if time_range == "today":
 
-            query += f"""
-WHERE DATE({date_column}) = CURDATE()
-""".rstrip()
-
-        # ------------------------------------------------------------
-        # YESTERDAY
-        # ------------------------------------------------------------
+            query += (
+                f"{connector}"
+                f"DATE({date_column}) = CURDATE()"
+            )
 
         elif time_range == "yesterday":
 
-            query += f"""
-WHERE DATE({date_column}) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
-""".rstrip()
-
-        # ------------------------------------------------------------
-        # THIS WEEK
-        # ------------------------------------------------------------
+            query += (
+                f"{connector}"
+                f"DATE({date_column}) = "
+                f"DATE_SUB(CURDATE(), INTERVAL 1 DAY)"
+            )
 
         elif time_range == "this_week":
 
             query += f"""
-WHERE {date_column} >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+{connector}{date_column} >= DATE_SUB(
+    CURDATE(),
+    INTERVAL WEEKDAY(CURDATE()) DAY
+)
 AND {date_column} < DATE_ADD(
-    DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY),
+    DATE_SUB(
+        CURDATE(),
+        INTERVAL WEEKDAY(CURDATE()) DAY
+    ),
     INTERVAL 7 DAY
 )
 """.rstrip()
 
-        # ------------------------------------------------------------
-        # LAST WEEK
-        # ------------------------------------------------------------
-
         elif time_range == "last_week":
 
             query += f"""
-WHERE {date_column} >= DATE_SUB(
+{connector}{date_column} >= DATE_SUB(
     CURDATE(),
     INTERVAL (WEEKDAY(CURDATE()) + 7) DAY
 )
@@ -471,28 +551,23 @@ AND {date_column} < DATE_SUB(
 )
 """.rstrip()
 
-        # ------------------------------------------------------------
-        # THIS MONTH
-        # ------------------------------------------------------------
-
         elif time_range == "this_month":
 
             query += f"""
-WHERE {date_column} >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+{connector}{date_column} >= DATE_FORMAT(
+    CURDATE(),
+    '%Y-%m-01'
+)
 AND {date_column} < DATE_FORMAT(
     DATE_ADD(CURDATE(), INTERVAL 1 MONTH),
     '%Y-%m-01'
 )
 """.rstrip()
 
-        # ------------------------------------------------------------
-        # LAST MONTH
-        # ------------------------------------------------------------
-
         elif time_range == "last_month":
 
             query += f"""
-WHERE {date_column} >= DATE_FORMAT(
+{connector}{date_column} >= DATE_FORMAT(
     DATE_SUB(CURDATE(), INTERVAL 1 MONTH),
     '%Y-%m-01'
 )
@@ -502,28 +577,23 @@ AND {date_column} < DATE_FORMAT(
 )
 """.rstrip()
 
-        # ------------------------------------------------------------
-        # THIS YEAR
-        # ------------------------------------------------------------
-
         elif time_range == "this_year":
 
             query += f"""
-WHERE {date_column} >= DATE_FORMAT(CURDATE(), '%Y-01-01')
+{connector}{date_column} >= DATE_FORMAT(
+    CURDATE(),
+    '%Y-01-01'
+)
 AND {date_column} < DATE_FORMAT(
     DATE_ADD(CURDATE(), INTERVAL 1 YEAR),
     '%Y-01-01'
 )
 """.rstrip()
 
-        # ------------------------------------------------------------
-        # LAST YEAR
-        # ------------------------------------------------------------
-
         elif time_range == "last_year":
 
             query += f"""
-WHERE {date_column} >= DATE_FORMAT(
+{connector}{date_column} >= DATE_FORMAT(
     DATE_SUB(CURDATE(), INTERVAL 1 YEAR),
     '%Y-01-01'
 )

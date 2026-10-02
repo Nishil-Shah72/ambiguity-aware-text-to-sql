@@ -1,16 +1,16 @@
-from app.intent import UserIntent
-from app.schema_reader import get_database_schema
 import re
+
+from app.intent import UserIntent
 
 
 class IntentParser:
 
-    def __init__(self, schema=None):
-        self.schema = schema or get_database_schema()
+    def __init__(self, schema):
+        self.schema = schema
 
     def parse(self, question):
 
-        question_lower = question.lower().strip()
+        question_lower = question.lower()
 
         action = None
         entities = []
@@ -26,9 +26,9 @@ class IntentParser:
         reference_target = None
         scope = None
 
-        # --------------------------------------------------
+        # ==================================================
         # ACTION DETECTION
-        # --------------------------------------------------
+        # ==================================================
 
         ranking_words = [
             "best",
@@ -44,36 +44,47 @@ class IntentParser:
         ]
 
         if any(
-            re.search(rf"\b{re.escape(word)}\b", question_lower)
+            re.search(
+                rf"\b{re.escape(word)}\b",
+                question_lower
+            )
             for word in ranking_words
         ):
             action = "ranking"
             ranking = "best"
 
         elif any(
-            re.search(rf"\b{re.escape(word)}\b", question_lower)
-            for word in ["average", "avg", "mean"]
+            word in question_lower
+            for word in [
+                "average",
+                "mean"
+            ]
         ):
             action = "aggregation"
             aggregation = "average"
 
         elif any(
-            re.search(rf"\b{re.escape(word)}\b", question_lower)
-            for word in ["total", "sum"]
+            word in question_lower
+            for word in [
+                "total",
+                "sum"
+            ]
         ):
             action = "aggregation"
             aggregation = "total"
 
-        elif (
-            "count" in question_lower
-            or "number of" in question_lower
-            or "how many" in question_lower
+        elif any(
+            word in question_lower
+            for word in [
+                "count",
+                "number of"
+            ]
         ):
             action = "aggregation"
             aggregation = "count"
 
         elif any(
-            re.search(rf"\b{re.escape(word)}\b", question_lower)
+            word in question_lower
             for word in [
                 "compare",
                 "comparison",
@@ -83,94 +94,193 @@ class IntentParser:
             ]
         ):
             action = "comparison"
+            comparisons.append("comparison")
 
         elif any(
-            re.search(rf"\b{re.escape(word)}\b", question_lower)
+            word in question_lower
             for word in [
                 "show",
                 "list",
-                "display",
                 "find",
-                "get"
+                "get",
+                "display"
             ]
         ):
             action = "retrieve"
 
-        # --------------------------------------------------
+        # ==================================================
+        # ENTITY / TABLE DETECTION
+        # ==================================================
+
+        # schema_reader returns:
+        #
+        # {
+        #     "customers": {...},
+        #     "orders": {...},
+        #     "products": {...},
+        #     "order_items": {...}
+        # }
+
+        schema_tables = self.schema
+
+        for table_name in schema_tables:
+
+            if re.search(
+                rf"\b{re.escape(table_name.lower())}\b",
+                question_lower
+            ):
+                entities.append(table_name)
+
+        # Singular forms
+
+        singular_to_plural = {
+            "customer": "customers",
+            "order": "orders",
+            "product": "products"
+        }
+
+        for singular, plural in singular_to_plural.items():
+
+            if (
+                re.search(
+                    rf"\b{re.escape(singular)}\b",
+                    question_lower
+                )
+                and plural in schema_tables
+                and plural not in entities
+            ):
+                entities.append(plural)
+
+        # ==================================================
+        # COLUMN DETECTION
+        # ==================================================
+
+        for table_name, table_info in schema_tables.items():
+
+            columns = table_info.get("columns", [])
+
+            for column_info in columns:
+
+                # schema_reader returns dictionaries
+                # such as {"name": "age", "type": "INTEGER"}
+
+                column_name = column_info.get("name")
+
+                if not column_name:
+                    continue
+
+                if re.search(
+                    rf"\b{re.escape(column_name.lower())}\b",
+                    question_lower
+                ):
+
+                    qualified_column = (
+                        f"{table_name}.{column_name}"
+                    )
+
+                    if qualified_column not in entities:
+                        entities.append(qualified_column)
+
+        # ==================================================
+        # SCOPE DETECTION
+        # ==================================================
+
+        if "sales" in question_lower:
+            scope = "sales"
+
+        elif "customers" in entities:
+            scope = "customers"
+
+        elif "orders" in entities:
+            scope = "orders"
+
+        elif "products" in entities:
+            scope = "products"
+
+        # ==================================================
+        # SALES DETECTION
+        # ==================================================
+
+        if (
+            "sales" in question_lower
+            and aggregation is None
+            and action != "ranking"
+        ):
+            action = "aggregation"
+            aggregation = "total"
+            scope = "sales"
+
+        # ==================================================
         # RANKING CRITERIA
-        # --------------------------------------------------
+        # ==================================================
 
-        if ranking:
+        if action == "ranking":
 
-            # Sales / spending / revenue
+            # Customer spending / sales
+
             if any(
                 word in question_lower
                 for word in [
-                    "sales",
-                    "revenue",
-                    "amount",
                     "spending",
                     "spent",
-                    "purchase value",
+                    "revenue",
+                    "sales",
                     "money"
                 ]
             ):
-                ranking_criteria = "sales"
+                ranking_criteria = "total_spending"
 
-            # Price
-            elif any(
-                word in question_lower
-                for word in [
-                    "price",
-                    "expensive",
-                    "cost",
-                    "cheapest",
-                    "costliest"
-                ]
+            # Product price
+
+            elif (
+                "most expensive" in question_lower
+                or "highest price" in question_lower
+                or "highest priced" in question_lower
             ):
                 ranking_criteria = "price"
 
-            # Age
-            elif any(
-                word in question_lower
-                for word in [
-                    "age",
-                    "oldest",
-                    "youngest",
-                    "older",
-                    "younger"
-                ]
+            elif (
+                "cheapest" in question_lower
+                or "lowest price" in question_lower
+                or "lowest priced" in question_lower
+            ):
+                ranking_criteria = "price"
+
+            # Customer age
+
+            elif (
+                "oldest customer" in question_lower
+                or "oldest customers" in question_lower
             ):
                 ranking_criteria = "age"
 
-            # Quantity
-            elif any(
-                word in question_lower
-                for word in [
-                    "quantity",
-                    "units",
-                    "sold",
-                    "items sold",
-                    "number sold"
-                ]
+            elif (
+                "youngest customer" in question_lower
+                or "youngest customers" in question_lower
             ):
-                ranking_criteria = "quantity"
+                ranking_criteria = "age"
 
-            # Number of orders
-            elif any(
-                phrase in question_lower
-                for phrase in [
-                    "number of orders",
-                    "order count",
-                    "most orders",
-                    "least orders"
-                ]
+            # Order count
+
+            elif (
+                "order count" in question_lower
+                or "number of orders" in question_lower
+                or "most orders" in question_lower
             ):
                 ranking_criteria = "order_count"
 
-        # --------------------------------------------------
-        # TIME RANGE
-        # --------------------------------------------------
+            # Quantity sold
+
+            elif (
+                "quantity" in question_lower
+                or "units" in question_lower
+                or "sold the most" in question_lower
+            ):
+                ranking_criteria = "quantity"
+
+        # ==================================================
+        # TIME RANGE DETECTION
+        # ==================================================
 
         if "today" in question_lower:
             time_range = "today"
@@ -196,301 +306,88 @@ class IntentParser:
         elif "last year" in question_lower:
             time_range = "last_year"
 
-        elif "recent" in question_lower:
+        elif any(
+            phrase in question_lower
+            for phrase in [
+                "recent",
+                "recently"
+            ]
+        ):
             time_range = "ambiguous"
 
-        # --------------------------------------------------
-        # COMPARISON
-        # --------------------------------------------------
+        # ==================================================
+        # COMPARISON CRITERIA
+        # ==================================================
 
         if action == "comparison":
 
-            if re.search(r"\bcustomer(s)?\b", question_lower):
-                comparisons.append("customers")
-
-            if re.search(r"\bproduct(s)?\b", question_lower):
-                comparisons.append("products")
-
-            if re.search(r"\border(s)?\b", question_lower):
-                comparisons.append("orders")
-
             if "sales" in question_lower:
-                comparisons.append("sales")
-
-            # Comparison criteria
-            if any(
-                word in question_lower
-                for word in [
-                    "sales",
-                    "revenue",
-                    "spending",
-                    "spent",
-                    "amount"
-                ]
-            ):
                 comparison_criteria = "sales"
 
-            elif any(
-                word in question_lower
-                for word in [
-                    "price",
-                    "cost",
-                    "expensive"
-                ]
-            ):
+            elif "price" in question_lower:
                 comparison_criteria = "price"
 
-            elif any(
-                word in question_lower
-                for word in [
-                    "age",
-                    "oldest",
-                    "youngest"
-                ]
-            ):
+            elif "age" in question_lower:
                 comparison_criteria = "age"
 
-            elif any(
-                word in question_lower
-                for word in [
-                    "quantity",
-                    "units",
-                    "sold"
-                ]
-            ):
+            elif "quantity" in question_lower:
                 comparison_criteria = "quantity"
 
-        # --------------------------------------------------
-        # REFERENCES
-        # --------------------------------------------------
+            elif "orders" in question_lower:
+                comparison_criteria = "orders"
+
+        # ==================================================
+        # REFERENCE DETECTION
+        # ==================================================
 
         reference_words = [
-            "his",
-            "her",
-            "their",
+            "they",
             "them",
-            "that",
-            "this",
-            "those",
-            "these",
-            "it"
+            "their",
+            "that customer",
+            "that product",
+            "that order",
+            "this customer",
+            "this product",
+            "this order"
         ]
 
         for word in reference_words:
 
-            pattern = rf"\b{re.escape(word)}\b"
+            if word in question_lower:
 
-            if re.search(pattern, question_lower):
                 references.append(word)
 
-        # Determine possible reference target
+                if "customer" in word:
+                    reference_target = "customer"
 
-        if references:
+                elif "product" in word:
+                    reference_target = "product"
 
-            if re.search(r"\bcustomer(s)?\b", question_lower):
-                reference_target = "customers"
+                elif "order" in word:
+                    reference_target = "order"
 
-            elif re.search(r"\bproduct(s)?\b", question_lower):
-                reference_target = "products"
-
-            elif re.search(r"\border(s)?\b", question_lower):
-                reference_target = "orders"
-
-            elif "sales" in question_lower:
-                reference_target = "sales"
-
-        # --------------------------------------------------
-        # SCOPE
-        # --------------------------------------------------
-
-        if "sales" in question_lower:
-            scope = "sales"
-
-        elif re.search(r"\bcustomer(s)?\b", question_lower):
-            scope = "customers"
-
-        elif re.search(r"\bproduct(s)?\b", question_lower):
-            scope = "products"
-
-        elif re.search(r"\border(s)?\b", question_lower):
-            scope = "orders"
-
-        # --------------------------------------------------
-        # TABLE / ENTITY DETECTION
-        # --------------------------------------------------
-
-        for table_name in self.schema.keys():
-
-            table_words = table_name.lower().replace("_", " ")
-
-            # Exact table name
-            if re.search(
-                rf"\b{re.escape(table_words)}\b",
-                question_lower
-            ):
-                entities.append(table_name)
-
-            else:
-                # Singular form
-                if table_words.endswith("s"):
-                    singular = table_words[:-1]
                 else:
-                    singular = table_words
+                    reference_target = "unknown"
 
-                if re.search(
-                    rf"\b{re.escape(singular)}\b",
-                    question_lower
-                ):
-                    entities.append(table_name)
+                break
 
-        # --------------------------------------------------
-        # COLUMN DETECTION
-        # --------------------------------------------------
-
-        schema_columns = []
-
-        for table_name, table_data in self.schema.items():
-
-            for column in table_data["columns"]:
-
-                column_name = column["name"]
-
-                column_text = column_name.lower().replace("_", " ")
-
-                schema_columns.append({
-                    "table": table_name,
-                    "column": column_name,
-                    "text": column_text
-                })
-
-                if re.search(
-                    rf"\b{re.escape(column_text)}\b",
-                    question_lower
-                ):
-
-                    entity = f"{table_name}.{column_name}"
-
-                    if entity not in entities:
-                        entities.append(entity)
-
-        # --------------------------------------------------
-        # SALES DETECTION
-        # --------------------------------------------------
-
-        if "sales" in question_lower:
-
-            if "orders" not in entities:
-                entities.append("orders")
-
-            if "orders.total_amount" not in entities:
-                entities.append("orders.total_amount")
-
-        # --------------------------------------------------
-        # SPECIAL RANKING DETECTION
-        # --------------------------------------------------
-
-        # "most expensive product"
-        if (
-            ranking
-            and "expensive" in question_lower
-            and "products" in entities
-        ):
-            ranking_criteria = "price"
-
-        # "cheapest product"
-        if (
-            ranking
-            and "cheapest" in question_lower
-            and "products" in entities
-        ):
-            ranking_criteria = "price"
-
-        # "oldest customer"
-        if (
-            ranking
-            and "oldest" in question_lower
-            and "customers" in entities
-        ):
-            ranking_criteria = "age"
-
-        # "youngest customer"
-        if (
-            ranking
-            and "youngest" in question_lower
-            and "customers" in entities
-        ):
-            ranking_criteria = "age"
-
-        # "product sold the most"
-        if (
-            ranking
-            and "sold" in question_lower
-            and "products" in entities
-        ):
-            ranking_criteria = "quantity"
-
-        # --------------------------------------------------
+        # ==================================================
         # NUMERIC CONDITIONS
-        # --------------------------------------------------
+        # ==================================================
 
-        for item in schema_columns:
-
-            column_text = item["text"]
-
-            pattern = (
-                rf"\b{re.escape(column_text)}\b\s+"
-                rf"(above|greater than|more than|over|"
-                rf"below|less than|under|equal to|equals?)\s+"
-                rf"(\d+(?:\.\d+)?)"
+        conditions.extend(
+            self._detect_numeric_conditions(
+                question_lower,
+                entities
             )
+        )
 
-            match = re.search(
-                pattern,
-                question_lower
-            )
-
-            if match:
-
-                operator_word = match.group(1)
-                value = match.group(2)
-
-                if operator_word in [
-                    "above",
-                    "greater than",
-                    "more than",
-                    "over"
-                ]:
-                    operator = ">"
-
-                elif operator_word in [
-                    "below",
-                    "less than",
-                    "under"
-                ]:
-                    operator = "<"
-
-                else:
-                    operator = "="
-
-                conditions.append({
-                    "column": f"{item['table']}.{item['column']}",
-                    "operator": operator,
-                    "value": value
-                })
-
-        # --------------------------------------------------
-        # REMOVE DUPLICATES
-        # --------------------------------------------------
-
-        entities = list(dict.fromkeys(entities))
-        comparisons = list(dict.fromkeys(comparisons))
-        references = list(dict.fromkeys(references))
-
-        # --------------------------------------------------
+        # ==================================================
         # RETURN INTENT
-        # --------------------------------------------------
+        # ==================================================
 
-        intent = UserIntent(
+        return UserIntent(
             question=question,
             action=action,
             entities=entities,
@@ -507,4 +404,253 @@ class IntentParser:
             scope=scope
         )
 
-        return intent
+    # ======================================================
+    # NUMERIC CONDITION DETECTION
+    # ======================================================
+
+    def _detect_numeric_conditions(
+        self,
+        question_lower,
+        entities
+    ):
+
+        conditions = []
+
+        # ==================================================
+        # AGE CONDITIONS
+        # ==================================================
+
+        age_patterns = [
+            (
+                r"\bolder than\s+(\d+)",
+                ">"
+            ),
+            (
+                r"\babove\s+(\d+)\s*(?:years?\s*old)?",
+                ">"
+            ),
+            (
+                r"\bgreater than\s+(\d+)\s*(?:years?\s*old)?",
+                ">"
+            ),
+            (
+                r"\bat least\s+(\d+)\s*(?:years?\s*old)?",
+                ">="
+            ),
+            (
+                r"\byounger than\s+(\d+)",
+                "<"
+            ),
+            (
+                r"\bunder\s+(\d+)\s*(?:years?\s*old)?",
+                "<"
+            ),
+            (
+                r"\bbelow\s+(\d+)\s*(?:years?\s*old)?",
+                "<"
+            ),
+            (
+                r"\bless than\s+(\d+)\s*(?:years?\s*old)?",
+                "<"
+            ),
+            (
+                r"\bat most\s+(\d+)\s*(?:years?\s*old)?",
+                "<="
+            )
+        ]
+
+        for pattern, operator in age_patterns:
+
+            match = re.search(
+                pattern,
+                question_lower
+            )
+
+            if match and (
+                "customers" in entities
+                or "customer" in question_lower
+            ):
+
+                conditions.append(
+                    {
+                        "column": "customers.age",
+                        "operator": operator,
+                        "value": match.group(1)
+                    }
+                )
+
+                break
+
+        # ==================================================
+        # PRODUCT PRICE CONDITIONS
+        # ==================================================
+
+        price_patterns = [
+            (
+                r"\bprice\s+(?:above|over|greater than)\s+(\d+(?:\.\d+)?)",
+                ">"
+            ),
+            (
+                r"\bprice\s+(?:below|under|less than)\s+(\d+(?:\.\d+)?)",
+                "<"
+            ),
+            (
+                r"\bprice\s+(?:at least)\s+(\d+(?:\.\d+)?)",
+                ">="
+            ),
+            (
+                r"\bprice\s+(?:at most)\s+(\d+(?:\.\d+)?)",
+                "<="
+            )
+        ]
+
+        for pattern, operator in price_patterns:
+
+            match = re.search(
+                pattern,
+                question_lower
+            )
+
+            if match and "products" in entities:
+
+                conditions.append(
+                    {
+                        "column": "products.price",
+                        "operator": operator,
+                        "value": match.group(1)
+                    }
+                )
+
+                break
+
+        # Handle:
+        # "Show products above 100"
+        # "Show products below 500"
+
+        if "products" in entities:
+
+            product_price_patterns = [
+                (
+                    r"\babove\s+(\d+(?:\.\d+)?)",
+                    ">"
+                ),
+                (
+                    r"\bover\s+(\d+(?:\.\d+)?)",
+                    ">"
+                ),
+                (
+                    r"\bbelow\s+(\d+(?:\.\d+)?)",
+                    "<"
+                ),
+                (
+                    r"\bunder\s+(\d+(?:\.\d+)?)",
+                    "<"
+                )
+            ]
+
+            for pattern, operator in product_price_patterns:
+
+                match = re.search(
+                    pattern,
+                    question_lower
+                )
+
+                if match:
+
+                    conditions.append(
+                        {
+                            "column": "products.price",
+                            "operator": operator,
+                            "value": match.group(1)
+                        }
+                    )
+
+                    break
+
+        # ==================================================
+        # ORDER AMOUNT CONDITIONS
+        # ==================================================
+
+        amount_patterns = [
+            (
+                r"(?:order|orders|amount|total)\s+(?:above|over|greater than)\s+(\d+(?:\.\d+)?)",
+                ">"
+            ),
+            (
+                r"(?:order|orders|amount|total)\s+(?:below|under|less than)\s+(\d+(?:\.\d+)?)",
+                "<"
+            ),
+            (
+                r"(?:order|orders|amount|total)\s+(?:at least)\s+(\d+(?:\.\d+)?)",
+                ">="
+            ),
+            (
+                r"(?:order|orders|amount|total)\s+(?:at most)\s+(\d+(?:\.\d+)?)",
+                "<="
+            )
+        ]
+
+        for pattern, operator in amount_patterns:
+
+            match = re.search(
+                pattern,
+                question_lower
+            )
+
+            if match and "orders" in entities:
+
+                conditions.append(
+                    {
+                        "column": "orders.total_amount",
+                        "operator": operator,
+                        "value": match.group(1)
+                    }
+                )
+
+                break
+
+        # Handle:
+        # "Show orders below 500"
+        # "Show orders above 1000"
+
+        if "orders" in entities:
+
+            order_amount_patterns = [
+                (
+                    r"\babove\s+(\d+(?:\.\d+)?)",
+                    ">"
+                ),
+                (
+                    r"\bover\s+(\d+(?:\.\d+)?)",
+                    ">"
+                ),
+                (
+                    r"\bbelow\s+(\d+(?:\.\d+)?)",
+                    "<"
+                ),
+                (
+                    r"\bunder\s+(\d+(?:\.\d+)?)",
+                    "<"
+                )
+            ]
+
+            for pattern, operator in order_amount_patterns:
+
+                match = re.search(
+                    pattern,
+                    question_lower
+                )
+
+                if match:
+
+                    conditions.append(
+                        {
+                            "column": "orders.total_amount",
+                            "operator": operator,
+                            "value": match.group(1)
+                        }
+                    )
+
+                    break
+
+        return conditions

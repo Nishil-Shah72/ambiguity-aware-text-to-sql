@@ -26,7 +26,7 @@ class TextToSQLPipeline:
     def process(self, question, clarification_answers=None):
 
         # --------------------------------------------------
-        # 1. Parse the original question
+        # 1. Parse the user's question
         # --------------------------------------------------
 
         intent = self.intent_parser.parse(question)
@@ -47,17 +47,18 @@ class TextToSQLPipeline:
                 ambiguities,
                 clarification_answers
             ):
-                intent = self.clarification_engine.apply_clarification(
-                    intent,
-                    ambiguity,
-                    answer
-                )
+                if answer and answer.strip():
+                    intent = self.clarification_engine.apply_clarification(
+                        intent,
+                        ambiguity,
+                        answer
+                    )
 
-            # Check again after clarification
+            # Re-check the updated intent
             ambiguities = self.ambiguity_detector.detect(intent)
 
         # --------------------------------------------------
-        # 4. Ask for clarification if still ambiguous
+        # 4. Ask for clarification if ambiguity remains
         # --------------------------------------------------
 
         if ambiguities:
@@ -98,7 +99,6 @@ class TextToSQLPipeline:
         )
 
         if not is_valid:
-
             return {
                 "status": "error",
                 "message": validation_message,
@@ -113,7 +113,6 @@ class TextToSQLPipeline:
         data, error = self.sql_executor.execute(sql)
 
         if error:
-
             return {
                 "status": "error",
                 "message": error,
@@ -122,13 +121,13 @@ class TextToSQLPipeline:
             }
 
         # --------------------------------------------------
-        # 8. Analyze result
+        # 8. Analyze database result
         # --------------------------------------------------
 
         analysis = self.result_analyzer.analyze(data)
 
         # --------------------------------------------------
-        # 9. Generate natural language answer
+        # 9. Generate natural-language answer
         # --------------------------------------------------
 
         answer = self.answer_generator.generate(
@@ -137,7 +136,7 @@ class TextToSQLPipeline:
         )
 
         # --------------------------------------------------
-        # 10. Return final response
+        # 10. Return final result
         # --------------------------------------------------
 
         return {
